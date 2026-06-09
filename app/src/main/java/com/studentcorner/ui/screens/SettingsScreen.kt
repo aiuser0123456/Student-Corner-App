@@ -14,21 +14,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.studentcorner.viewmodel.AuthViewModel
+import com.studentcorner.viewmodel.SettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     authViewModel: AuthViewModel,
+    settingsViewModel: SettingsViewModel,
     onSignOut: () -> Unit,
     onBack: () -> Unit,
     onNavigateToPrivacy: () -> Unit,
     onNavigateToTerms: () -> Unit,
     onNavigateToContact: () -> Unit,
 ) {
-    val state by authViewModel.uiState.collectAsState()
-    var showUsernameDialog by remember { mutableStateOf(false) }
-    var showSignOutDialog by remember { mutableStateOf(false) }
-    var newUsername by remember { mutableStateOf("") }
+    val authState     by authViewModel.uiState.collectAsState()
+    val settingsState by settingsViewModel.uiState.collectAsState()
+    var showUsernameDialog  by remember { mutableStateOf(false) }
+    var showSignOutDialog   by remember { mutableStateOf(false) }
+    var newUsername         by remember { mutableStateOf("") }
 
     if (showUsernameDialog) {
         AlertDialog(
@@ -36,23 +39,16 @@ fun SettingsScreen(
             title = { Text("Update Username") },
             text = {
                 OutlinedTextField(
-                    value = newUsername,
-                    onValueChange = { newUsername = it },
-                    label = { Text("New username") },
-                    singleLine = true,
+                    value = newUsername, onValueChange = { newUsername = it },
+                    label = { Text("New username") }, singleLine = true,
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
-                    if (newUsername.isNotBlank()) {
-                        authViewModel.updateUsername(newUsername)
-                        showUsernameDialog = false
-                    }
+                    if (newUsername.isNotBlank()) { authViewModel.updateUsername(newUsername); showUsernameDialog = false }
                 }) { Text("Save") }
             },
-            dismissButton = {
-                TextButton(onClick = { showUsernameDialog = false }) { Text("Cancel") }
-            }
+            dismissButton = { TextButton(onClick = { showUsernameDialog = false }) { Text("Cancel") } }
         )
     }
 
@@ -62,11 +58,11 @@ fun SettingsScreen(
             title = { Text("Sign Out") },
             text = { Text("Are you sure you want to sign out?") },
             confirmButton = {
-                TextButton(onClick = { authViewModel.signOut(); onSignOut() }) { Text("Sign Out", color = MaterialTheme.colorScheme.error) }
+                TextButton(onClick = { authViewModel.signOut(); onSignOut() }) {
+                    Text("Sign Out", color = MaterialTheme.colorScheme.error)
+                }
             },
-            dismissButton = {
-                TextButton(onClick = { showSignOutDialog = false }) { Text("Cancel") }
-            }
+            dismissButton = { TextButton(onClick = { showSignOutDialog = false }) { Text("Cancel") } }
         )
     }
 
@@ -79,47 +75,82 @@ fun SettingsScreen(
         }
     ) { padding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState()),
+            modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
         ) {
-            // Profile section
-            state.user?.let { user ->
-                Card(modifier = Modifier.fillMaxWidth().padding(16.dp), elevation = CardDefaults.cardElevation(2.dp)) {
+            // ── Profile ───────────────────────────────────────────────────────
+            authState.user?.let { user ->
+                Card(modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    elevation = CardDefaults.cardElevation(2.dp)) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Profile", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                        Text("Profile", style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.height(12.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.AccountCircle, null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
+                            Icon(Icons.Default.AccountCircle, null,
+                                modifier = Modifier.size(52.dp), tint = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(12.dp))
                             Column {
                                 Text(user.username, style = MaterialTheme.typography.titleMedium)
-                                Text(user.email, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(user.email, style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (user.isAdmin) {
+                                    Text("Admin", style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.error)
+                                }
                             }
                         }
                         Spacer(Modifier.height(12.dp))
-                        OutlinedButton(
-                            onClick = { newUsername = user.username; showUsernameDialog = true },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
+                        OutlinedButton(onClick = { newUsername = user.username; showUsernameDialog = true },
+                            modifier = Modifier.fillMaxWidth()) {
                             Icon(Icons.Default.Edit, null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(8.dp))
                             Text("Change Username")
                         }
-                        state.successMessage?.let { Text(it, color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp)) }
+                        authState.successMessage?.let {
+                            Text(it, color = MaterialTheme.colorScheme.secondary,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(top = 4.dp))
+                        }
                     }
                 }
             }
 
-            // App section
+            // ── Appearance ────────────────────────────────────────────────────
+            SettingsSectionHeader("Appearance")
+            Surface(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        if (settingsState.darkMode) Icons.Default.DarkMode else Icons.Default.LightMode,
+                        null,
+                        modifier = Modifier.size(22.dp),
+                    )
+                    Spacer(Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Dark Mode", style = MaterialTheme.typography.bodyLarge)
+                        Text(if (settingsState.darkMode) "Currently dark" else "Currently light",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(
+                        checked = settingsState.darkMode,
+                        onCheckedChange = { settingsViewModel.setDarkMode(it) },
+                    )
+                }
+            }
+
+            // ── App ───────────────────────────────────────────────────────────
             SettingsSectionHeader("App")
-            SettingsItem(icon = Icons.Default.ContactSupport, label = "Contact Us", onClick = onNavigateToContact)
-            SettingsItem(icon = Icons.Default.PrivacyTip, label = "Privacy Policy", onClick = onNavigateToPrivacy)
-            SettingsItem(icon = Icons.Default.Gavel, label = "Terms of Service", onClick = onNavigateToTerms)
+            SettingsItem(icon = Icons.Default.ContactSupport, label = "Contact Us",
+                onClick = onNavigateToContact)
+            SettingsItem(icon = Icons.Default.PrivacyTip, label = "Privacy Policy",
+                onClick = onNavigateToPrivacy)
+            SettingsItem(icon = Icons.Default.Gavel, label = "Terms of Service",
+                onClick = onNavigateToTerms)
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
             SettingsItem(
                 icon = Icons.AutoMirrored.Filled.ExitToApp,
                 label = "Sign Out",
@@ -128,12 +159,10 @@ fun SettingsScreen(
             )
 
             Spacer(Modifier.height(24.dp))
-            Text(
-                "Student Corner v1.0.0",
+            Text("Student Corner v1.1.0",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-            )
+                modifier = Modifier.align(Alignment.CenterHorizontally))
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -141,12 +170,10 @@ fun SettingsScreen(
 
 @Composable
 private fun SettingsSectionHeader(title: String) {
-    Text(
-        title,
+    Text(title,
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-    )
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
 }
 
 @Composable
@@ -154,20 +181,17 @@ private fun SettingsItem(
     icon: ImageVector,
     label: String,
     onClick: () -> Unit,
-    tint: androidx.compose.ui.graphics.Color = LocalContentColor.current,
+    tint: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurface,
 ) {
     Surface(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, null, tint = tint, modifier = Modifier.size(22.dp))
             Spacer(Modifier.width(16.dp))
-            Text(label, style = MaterialTheme.typography.bodyLarge, color = tint, modifier = Modifier.weight(1f))
-            Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+            Text(label, style = MaterialTheme.typography.bodyLarge, color = tint,
+                modifier = Modifier.weight(1f))
+            Icon(Icons.Default.ChevronRight, null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
         }
     }
 }
-
-@Composable
-private fun LocalContentColor() = MaterialTheme.colorScheme.onSurface

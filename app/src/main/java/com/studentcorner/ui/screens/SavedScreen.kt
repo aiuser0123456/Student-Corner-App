@@ -5,7 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,24 +20,32 @@ fun SavedScreen(
     onResourceClick: (String) -> Unit,
     onBack: () -> Unit,
 ) {
-    val state by viewModel.uiState.collectAsState()
-    val savedResources = viewModel.getSavedResources()
+    // Observe the live savedIds flow so unbookmark reflects instantly
+    val savedIds by viewModel.savedIds.collectAsState()
+    val state    by viewModel.uiState.collectAsState()
+
+    val savedResources = remember(savedIds, state.allResources) {
+        state.allResources.filter { it.id in savedIds }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Saved Resources") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+                title = { Text("Saved Resources (${savedResources.size})") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                    }
+                },
             )
         }
     ) { padding ->
         if (savedResources.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.Bookmark, null, modifier = Modifier.size(72.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(16.dp))
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.BookmarkBorder, null, modifier = Modifier.size(72.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("No saved resources", style = MaterialTheme.typography.titleMedium)
-                    Text("Bookmark resources to access them quickly here.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Tap the bookmark icon on any resource to save it here.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         } else {
@@ -49,7 +57,7 @@ fun SavedScreen(
                 items(savedResources, key = { it.id }) { resource ->
                     ResourceCard(
                         resource = resource,
-                        isSaved = true,
+                        isSaved = true,   // everything here is saved
                         onClick = { onResourceClick(resource.id) },
                         onSaveToggle = { viewModel.toggleSave(resource.id) },
                     )

@@ -1,29 +1,22 @@
 package com.studentcorner.ui
 
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import android.net.Uri
+import androidx.compose.runtime.*
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.navigation.NavHostController
-import androidx.navigation.NavType
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.navArgument
+import androidx.navigation.*
+import androidx.navigation.compose.*
 import com.studentcorner.ui.screens.*
-import com.studentcorner.viewmodel.AiChatViewModel
-import com.studentcorner.viewmodel.AuthViewModel
-import com.studentcorner.viewmodel.ResourcesViewModel
+import com.studentcorner.viewmodel.*
 
 @Composable
-fun AppNavGraph(
-    navController: NavHostController,
-    authViewModel: AuthViewModel = hiltViewModel(),
-) {
+fun AppNavGraph(navController: NavHostController) {
+    val authViewModel: AuthViewModel          = hiltViewModel()
+    val resourcesViewModel: ResourcesViewModel = hiltViewModel()
+    val aiChatViewModel: AiChatViewModel       = hiltViewModel()
+    val settingsViewModel: SettingsViewModel   = hiltViewModel()
+
     val authState by authViewModel.uiState.collectAsState()
     val startDest = if (authState.isLoggedIn) Screen.Home.route else Screen.Login.route
-
-    val resourcesViewModel: ResourcesViewModel = hiltViewModel()
-    val aiChatViewModel: AiChatViewModel = hiltViewModel()
 
     NavHost(navController = navController, startDestination = startDest) {
 
@@ -40,7 +33,6 @@ fun AppNavGraph(
                 }
             )
         }
-
         composable(Screen.SignUp.route) {
             SignUpScreen(
                 viewModel = authViewModel,
@@ -52,26 +44,22 @@ fun AppNavGraph(
                 }
             )
         }
-
         composable(Screen.ForgotPassword.route) {
-            ForgotPasswordScreen(
-                viewModel = authViewModel,
-                onBack = { navController.popBackStack() },
-            )
+            ForgotPasswordScreen(viewModel = authViewModel, onBack = { navController.popBackStack() })
         }
 
         // ── Main ──────────────────────────────────────────────────────────────
         composable(Screen.Home.route) {
             HomeScreen(
                 authViewModel = authViewModel,
-                onNavigateToResources = { navController.navigate(Screen.Resources.route) },
-                onNavigateToAiChat = { navController.navigate(Screen.AiChat.route) },
-                onNavigateToSaved = { navController.navigate(Screen.Saved.route) },
-                onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
-                onNavigateToAbout = { navController.navigate(Screen.About.route) },
+                onNavigateToResources  = { navController.navigate(Screen.Resources.route) },
+                onNavigateToAiChat     = { navController.navigate(Screen.AiChat.route) },
+                onNavigateToSaved      = { navController.navigate(Screen.Saved.route) },
+                onNavigateToDownloads  = { navController.navigate(Screen.Downloads.route) },
+                onNavigateToSettings   = { navController.navigate(Screen.Settings.route) },
+                onNavigateToAbout      = { navController.navigate(Screen.About.route) },
             )
         }
-
         composable(Screen.Resources.route) {
             ResourcesScreen(
                 viewModel = resourcesViewModel,
@@ -79,19 +67,20 @@ fun AppNavGraph(
                 onBack = { navController.popBackStack() },
             )
         }
-
         composable(
             route = Screen.ResourceDetail.route,
             arguments = listOf(navArgument("resourceId") { type = NavType.StringType })
-        ) { backStackEntry ->
-            val resourceId = backStackEntry.arguments?.getString("resourceId") ?: ""
+        ) { back ->
+            val resourceId = back.arguments?.getString("resourceId") ?: ""
             ResourceDetailScreen(
                 resourceId = resourceId,
                 resourcesViewModel = resourcesViewModel,
                 onBack = { navController.popBackStack() },
+                onOpenPdf = { _, title ->
+                    navController.navigate(Screen.PdfViewer.createRoute(resourceId, title))
+                },
             )
         }
-
         composable(Screen.Saved.route) {
             SavedScreen(
                 viewModel = resourcesViewModel,
@@ -99,43 +88,52 @@ fun AppNavGraph(
                 onBack = { navController.popBackStack() },
             )
         }
-
-        composable(Screen.AiChat.route) {
-            AiChatScreen(
-                viewModel = aiChatViewModel,
+        composable(Screen.Downloads.route) {
+            DownloadsScreen(
+                viewModel = resourcesViewModel,
+                onOpenPdf = { file, title ->
+                    // find the resourceId from file name
+                    val resourceId = file.nameWithoutExtension
+                    navController.navigate(Screen.PdfViewer.createRoute(resourceId, title))
+                },
                 onBack = { navController.popBackStack() },
             )
         }
-
+        composable(
+            route = Screen.PdfViewer.route,
+            arguments = listOf(
+                navArgument("resourceId") { type = NavType.StringType },
+                navArgument("title") { type = NavType.StringType },
+            )
+        ) { back ->
+            val resourceId = back.arguments?.getString("resourceId") ?: ""
+            val title = Uri.decode(back.arguments?.getString("title") ?: "PDF")
+            val file = resourcesViewModel.getLocalPdfFile(resourceId)
+            PdfViewerScreen(
+                pdfFile = file,
+                title = title,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Screen.AiChat.route) {
+            AiChatScreen(viewModel = aiChatViewModel, onBack = { navController.popBackStack() })
+        }
         composable(Screen.Settings.route) {
             SettingsScreen(
                 authViewModel = authViewModel,
+                settingsViewModel = settingsViewModel,
                 onSignOut = {
-                    navController.navigate(Screen.Login.route) {
-                        popUpTo(0) { inclusive = true }
-                    }
+                    navController.navigate(Screen.Login.route) { popUpTo(0) { inclusive = true } }
                 },
                 onBack = { navController.popBackStack() },
-                onNavigateToPrivacy = { navController.navigate(Screen.Privacy.route) },
-                onNavigateToTerms = { navController.navigate(Screen.Terms.route) },
-                onNavigateToContact = { navController.navigate(Screen.Contact.route) },
+                onNavigateToPrivacy  = { navController.navigate(Screen.Privacy.route) },
+                onNavigateToTerms    = { navController.navigate(Screen.Terms.route) },
+                onNavigateToContact  = { navController.navigate(Screen.Contact.route) },
             )
         }
-
-        composable(Screen.About.route) {
-            AboutScreen(onBack = { navController.popBackStack() })
-        }
-
-        composable(Screen.Contact.route) {
-            ContactScreen(onBack = { navController.popBackStack() })
-        }
-
-        composable(Screen.Privacy.route) {
-            PrivacyScreen(onBack = { navController.popBackStack() })
-        }
-
-        composable(Screen.Terms.route) {
-            TermsScreen(onBack = { navController.popBackStack() })
-        }
+        composable(Screen.About.route)   { AboutScreen(onBack = { navController.popBackStack() }) }
+        composable(Screen.Contact.route) { ContactScreen(onBack = { navController.popBackStack() }) }
+        composable(Screen.Privacy.route) { PrivacyScreen(onBack = { navController.popBackStack() }) }
+        composable(Screen.Terms.route)   { TermsScreen(onBack = { navController.popBackStack() }) }
     }
 }

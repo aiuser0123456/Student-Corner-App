@@ -7,7 +7,9 @@
     <application
         android:name=".StudentCornerApp"
         android:allowBackup="true"
+   
         android:label="@string/app_name"
+    
         android:supportsRtl="true"
         android:theme="@style/Theme.StudentCorner">
 
@@ -15,13 +17,17 @@
             android:name=".MainActivity"
             android:exported="true"
             android:windowSoftInputMode="adjustResize">
-
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+        </activity>
 
+    </application>
+
+</manifest>
+R" />
+            </intent-filter>
         </activity>
 
     </application>

@@ -28,6 +28,7 @@ fun HomeScreen(
     onNavigateToResources: () -> Unit,
     onNavigateToAiChat: () -> Unit,
     onNavigateToSaved: () -> Unit,
+    onNavigateToDownloads: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToAbout: () -> Unit,
 ) {
@@ -60,32 +61,24 @@ fun HomeScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(
-                        Brush.linearGradient(colors = listOf(PrimaryBlue, AccentPurple))
-                    )
+                    .background(Brush.linearGradient(colors = listOf(PrimaryBlue, AccentPurple)))
                     .padding(32.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     authState.user?.username?.let { name ->
-                        Text(
-                            "Welcome back, $name! 👋",
+                        Text("Welcome back, $name! 👋",
                             style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f),
-                        )
+                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f))
                         Spacer(Modifier.height(4.dp))
                     }
-                    Text(
-                        "Your Smart Study Companion",
+                    Text("Your Smart Study Companion",
                         style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "Access curated resources for NEET, JEE & MHT-CET preparation",
+                        color = MaterialTheme.colorScheme.onPrimary)
+                    Spacer(Modifier.height(6.dp))
+                    Text("NEET · JEE · MHT-CET preparation resources",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
-                    )
+                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f))
                     Spacer(Modifier.height(20.dp))
                     Button(
                         onClick = onNavigateToResources,
@@ -101,65 +94,47 @@ fun HomeScreen(
                 }
             }
 
-            // Quick actions grid
+            // Quick actions grid (2×3)
             Column(modifier = Modifier.padding(16.dp)) {
-                Text("Quick Access", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 12.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    QuickActionCard(
-                        icon = Icons.Default.MenuBook,
-                        label = "Resources",
-                        onClick = onNavigateToResources,
-                        modifier = Modifier.weight(1f),
-                    )
-                    QuickActionCard(
-                        icon = Icons.Default.AutoAwesome,
-                        label = "AI Chat",
-                        onClick = onNavigateToAiChat,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                Spacer(Modifier.height(12.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    QuickActionCard(
-                        icon = Icons.Default.Bookmark,
-                        label = "Saved",
-                        onClick = onNavigateToSaved,
-                        modifier = Modifier.weight(1f),
-                    )
-                    QuickActionCard(
-                        icon = Icons.Default.Info,
-                        label = "About",
-                        onClick = onNavigateToAbout,
-                        modifier = Modifier.weight(1f),
-                    )
+                Text("Quick Access", style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(bottom = 12.dp))
+                val items = listOf(
+                    Triple(Icons.Default.MenuBook,      "Resources",  onNavigateToResources),
+                    Triple(Icons.Default.AutoAwesome,   "AI Chat",    onNavigateToAiChat),
+                    Triple(Icons.Default.Bookmark,      "Saved",      onNavigateToSaved),
+                    Triple(Icons.Default.DownloadDone,  "Downloads",  onNavigateToDownloads),
+                    Triple(Icons.Default.Settings,      "Settings",   onNavigateToSettings),
+                    Triple(Icons.Default.Info,          "About",      onNavigateToAbout),
+                )
+                items.chunked(3).forEach { row ->
+                    Row(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        row.forEach { (icon, label, action) ->
+                            QuickActionCard(icon, label, action, Modifier.weight(1f))
+                        }
+                        // Fill remaining space if row has < 3 items
+                        repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                    }
                 }
             }
 
             // Features section
-            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                Text("What We Offer", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 12.dp))
-                FeatureRow(
-                    icon = Icons.Default.Quiz,
-                    title = "Comprehensive Question Banks",
-                    desc = "Practice with thousands of questions tailored to NEET, JEE, and MHT-CET exam patterns.",
-                )
-                FeatureRow(
-                    icon = Icons.Default.LibraryBooks,
-                    title = "Detailed Textbook Solutions",
-                    desc = "Step-by-step solutions for your textbook exercises to instantly clarify doubts.",
-                )
-                FeatureRow(
-                    icon = Icons.Default.Notes,
-                    title = "Expert Study Notes",
-                    desc = "Concise, well-structured notes from subject matter experts.",
-                )
-                FeatureRow(
-                    icon = Icons.Default.SmartToy,
-                    title = "AI-Powered Assistant",
-                    desc = "Get instant answers to your study questions using our AI chat assistant.",
-                )
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                Text("What We Offer", style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(bottom = 12.dp))
+                listOf(
+                    Triple(Icons.Default.Quiz, "Question Banks",
+                        "Thousands of practice questions tailored to NEET, JEE & MHT-CET."),
+                    Triple(Icons.Default.LibraryBooks, "Textbook Solutions",
+                        "Step-by-step solutions for all standard textbook exercises."),
+                    Triple(Icons.Default.Notes, "Study Notes",
+                        "Concise, expert-curated notes for quick revision."),
+                    Triple(Icons.Default.SmartToy, "AI Study Assistant",
+                        "Instant answers using GPT-4, Gemini, Claude, or free models."),
+                    Triple(Icons.Default.DownloadDone, "Offline PDFs",
+                        "Download PDFs and read them anytime, even without internet."),
+                ).forEach { (icon, title, desc) -> FeatureRow(icon, title, desc) }
             }
-
             Spacer(Modifier.height(32.dp))
         }
     }
@@ -167,15 +142,10 @@ fun HomeScreen(
 
 @Composable
 private fun QuickActionCard(
-    icon: ImageVector,
-    label: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
+    icon: ImageVector, label: String, onClick: () -> Unit, modifier: Modifier = Modifier,
 ) {
     Card(
-        modifier = modifier
-            .height(90.dp)
-            .clickable(onClick = onClick),
+        modifier = modifier.height(80.dp).clickable(onClick = onClick),
         elevation = CardDefaults.cardElevation(2.dp),
     ) {
         Column(
@@ -183,30 +153,23 @@ private fun QuickActionCard(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+            Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(26.dp))
             Spacer(Modifier.height(4.dp))
-            Text(label, style = MaterialTheme.typography.labelMedium)
+            Text(label, style = MaterialTheme.typography.labelSmall)
         }
     }
 }
 
 @Composable
 private fun FeatureRow(icon: ImageVector, title: String, desc: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.Top,
-    ) {
-        Icon(
-            icon, null,
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.Top) {
+        Icon(icon, null,
             tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier
                 .size(40.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .background(MaterialTheme.colorScheme.primaryContainer)
-                .padding(8.dp),
-        )
+                .padding(8.dp))
         Spacer(Modifier.width(12.dp))
         Column {
             Text(title, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold))
