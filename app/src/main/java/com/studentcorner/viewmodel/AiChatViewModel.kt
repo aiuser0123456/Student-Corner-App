@@ -28,7 +28,6 @@ data class AiChatUiState(
     val activeConversationId: String? = null,
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
-    // API settings (loaded from DataStore)
     val selectedProvider: String = "openrouter",
     val geminiKey: String = "",
     val openAiKey: String = "",
@@ -52,14 +51,14 @@ class AiChatViewModel @Inject constructor(
     private var streamCall: Call? = null
 
     init {
-        loadPrefs()
+        observePrefs()
         loadChatCommands()
         newConversation()
     }
 
-    // ── Prefs ─────────────────────────────────────────────────────────────────
-
-    private fun loadPrefs() {
+    // ── Prefs (live) ──────────────────────────────────────────────────────────
+    // Keys are read fresh from DataStore on each send — no stale snapshot bug
+    private fun observePrefs() {
         viewModelScope.launch {
             combine(
                 prefs.selectedProvider,
@@ -67,27 +66,21 @@ class AiChatViewModel @Inject constructor(
                 prefs.openAiKey,
                 prefs.claudeKey,
                 prefs.openRouterKey,
-            ) { arr -> arr }.collect { arr ->
+            ) { provider, gemini, openAi, claude, openRouter ->
                 _uiState.update { s ->
                     s.copy(
-                        selectedProvider = arr[0] as String,
-                        geminiKey        = arr[1] as String,
-                        openAiKey        = arr[2] as String,
-                        claudeKey        = arr[3] as String,
-                        openRouterKey    = arr[4] as String,
+                        selectedProvider = provider,
+                        geminiKey        = gemini,
+                        openAiKey        = openAi,
+                        claudeKey        = claude,
+                        openRouterKey    = openRouter,
                     )
                 }
-            }
+            }.collect()
         }
     }
 
-    fun saveApiSettings(
-        provider: String,
-        gemini: String,
-        openAi: String,
-        claude: String,
-        openRouter: String,
-    ) {
+    fun saveApiSettings(provider: String, gemini: String, openAi: String, claude: String, openRouter: String) {
         viewModelScope.launch {
             prefs.setSelectedProvider(provider)
             prefs.setGeminiKey(gemini)
@@ -98,7 +91,6 @@ class AiChatViewModel @Inject constructor(
     }
 
     // ── Commands ──────────────────────────────────────────────────────────────
-
     private fun loadChatCommands() {
         viewModelScope.launch {
             when (val r = repository.getAllChatCommands()) {
@@ -108,65 +100,47 @@ class AiChatViewModel @Inject constructor(
         }
     }
 
-    // ── Conversation management ───────────────────────────────────────────────
-
+    // ── Conversations ─────────────────────────────────────────────────────────
     fun newConversation() {
         val conv = Conversation(id = UUID.randomUUID().toString(), title = "New Chat")
         _uiState.update { s ->
-            s.copy(
-                conversations = listOf(conv) + s.conversations,
-                activeConversationId = conv.id,
-            )
+            s.copy(conversations = listOf(conv) + s.conversations, activeConversationId = conv.id)
         }
     }
-
     fun selectConversation(id: String) = _uiState.update { it.copy(activeConversationId = id) }
-
-    fun renameConversation(id: String, newTitle: String) =
-        updateConversation(id) { it.copy(title = newTitle) }
-
-    fun clearCurrentChat() {
-        val id = _uiState.value.activeConversationId ?: return
-        updateConversation(id) { it.copy(messages = emptyList()) }
-    }
-
+    fun renameConversation(id: String, title: String) = editConv(id) { it.copy(title = title) }
+    fun clearCurrentChat() { _uiState.value.activeConversationId?.let { editConv(it) { c -> c.copy(messages = emptyList()) } } }
     fun deleteConversation(id: String) {
-        val remaining = _uiState.value.conversations.filter { it.id != id }
-        val newActive = if (_uiState.value.activeConversationId == id)
-            remaining.firstOrNull()?.id else _uiState.value.activeConversationId
-        _uiState.update { it.copy(conversations = remaining, activeConversationId = newActive) }
-        if (remaining.isEmpty()) newConversation()
+        val rest = _uiState.value.conversations.filter { it.id != id }
+        val next = if (_uiState.value.activeConversationId == id) rest.firstOrNull()?.id else _uiState.value.activeConversationId
+        _uiState.update { it.copy(conversations = rest, activeConversationId = next) }
+        if (rest.isEmpty()) newConversation()
     }
 
-    // ── Send message ──────────────────────────────────────────────────────────
-
+    // ── Send ──────────────────────────────────────────────────────────────────
     fun sendMessage(input: String) {
         val convId = _uiState.value.activeConversationId ?: return
-        val trimmed = input.trim().ifBlank { return }
+        val text = input.trim().ifBlank { return }
 
-        val userMsg = ChatMessage(UUID.randomUUID().toString(), MessageRole.USER, trimmed)
-        updateConversation(convId) { c ->
-            val title = if (c.messages.isEmpty()) trimmed.take(30) else c.title
-            c.copy(messages = c.messages + userMsg, title = title)
+        val userMsg = ChatMessage(UUID.randomUUID().toString(), MessageRole.USER, text)
+        editConv(convId) { c ->
+            c.copy(messages = c.messages + userMsg,
+                title = if (c.messages.isEmpty()) text.take(35) else c.title)
         }
 
-        // 1. Hardcoded identity responses
-        val lower = trimmed.lowercase()
-        if (lower in listOf("hi", "hello", "hlo", "hey")) {
-            addBotMessage(convId, "Hello! I'm your Study Buddy AI from Student Corner. How can I help you learn today? 😊")
-            return
+        val lower = text.lowercase()
+        when {
+            lower in listOf("hi","hello","hlo","hey","hii") ->
+                addBot(convId, "Hello! 👋 I'm **Study Buddy**, your AI assistant from Student Corner. Ask me anything about Physics, Chemistry, Maths, Biology or CS!")
+            lower.contains("who made you") || lower.contains("who created you") || lower.contains("who built you") ->
+                addBot(convId, "I'm **Study Buddy**, created by **Student Corner** to help Class 11 & 12 students prepare for NEET, JEE, and MHT-CET! 🎓")
+            lower.contains("what is your name") || lower.contains("your name") ->
+                addBot(convId, "I'm **Study Buddy** — your personal AI study assistant from Student Corner! 🤖")
+            else -> {
+                val cmd = matchCommand(text)
+                if (cmd != null) addBot(convId, cmd) else callAiApi(convId)
+            }
         }
-        if (lower.contains("who made you") || lower.contains("who created you")) {
-            addBotMessage(convId, "I'm **Study Buddy**, created by **Student Corner** to help you with your studies! 🎓")
-            return
-        }
-
-        // 2. Admin chat commands from Firestore
-        val cmdResp = matchCommand(trimmed)
-        if (cmdResp != null) { addBotMessage(convId, cmdResp); return }
-
-        // 3. AI API call
-        callAiApi(convId, trimmed)
     }
 
     fun stopGenerating() {
@@ -175,13 +149,34 @@ class AiChatViewModel @Inject constructor(
         _uiState.update { it.copy(isLoading = false) }
     }
 
-    // ── API call (SSE streaming) ───────────────────────────────────────────────
-
-    private fun callAiApi(convId: String, latestUserText: String) {
+    // ── AI API (SSE streaming) ────────────────────────────────────────────────
+    private fun callAiApi(convId: String) {
+        // Read keys fresh from current state (populated by observePrefs)
         val s = _uiState.value
+
+        val provider = s.selectedProvider
+        val key = when (provider) {
+            "gemini"     -> s.geminiKey
+            "openai"     -> s.openAiKey
+            "claude"     -> s.claudeKey
+            "openrouter" -> s.openRouterKey
+            else         -> s.openRouterKey
+        }
+
+        // Validate key (openrouter free models don't need a key)
+        val needsKey = provider != "openrouter"
+        if (needsKey && key.isBlank()) {
+            addBot(convId, "⚠️ No API key set for **${providerLabel(provider)}**.\n\nTap the **⚙ Settings** button in the top bar → enter your API key → Save.\n\n" +
+                "**How to get keys:**\n" +
+                "- **Gemini**: [aistudio.google.com](https://aistudio.google.com) → Get API Key (free)\n" +
+                "- **OpenAI**: [platform.openai.com](https://platform.openai.com) → API keys\n" +
+                "- **Claude**: [console.anthropic.com](https://console.anthropic.com) → API Keys\n" +
+                "- **OpenRouter**: [openrouter.ai](https://openrouter.ai) → Keys (has free models!)")
+            return
+        }
+
         val botMsgId = UUID.randomUUID().toString()
-        val placeholderMsg = ChatMessage(botMsgId, MessageRole.MODEL, "")
-        updateConversation(convId) { it.copy(messages = it.messages + placeholderMsg) }
+        editConv(convId) { it.copy(messages = it.messages + ChatMessage(botMsgId, MessageRole.MODEL, "")) }
         _uiState.update { it.copy(isLoading = true, errorMessage = null) }
 
         val history = _uiState.value.activeConversation?.messages
@@ -191,9 +186,14 @@ class AiChatViewModel @Inject constructor(
 
         viewModelScope.launch {
             try {
-                val (url, requestBody, headers) = buildRequest(s, history)
-                val req = Request.Builder().url(url).post(requestBody.toRequestBody("application/json".toMediaType()))
-                    .apply { headers.forEach { (k, v) -> addHeader(k, v) } }
+                val (url, body, extraHeaders) = buildRequest(provider, key, history)
+                val req = Request.Builder()
+                    .url(url)
+                    .post(body.toRequestBody("application/json".toMediaType()))
+                    .apply {
+                        addHeader("Content-Type", "application/json")
+                        extraHeaders.forEach { (k, v) -> addHeader(k, v) }
+                    }
                     .build()
 
                 streamCall = okHttpClient.newCall(req)
@@ -201,7 +201,7 @@ class AiChatViewModel @Inject constructor(
 
                 if (!resp.isSuccessful) {
                     val errBody = resp.body?.string() ?: "HTTP ${resp.code}"
-                    throw Exception(errBody)
+                    throw Exception("API error ${resp.code}: $errBody")
                 }
 
                 val reader = BufferedReader(InputStreamReader(resp.body!!.byteStream()))
@@ -210,60 +210,51 @@ class AiChatViewModel @Inject constructor(
 
                 while (reader.readLine().also { line = it } != null) {
                     val raw = line!!
+                    if (raw == "data: [DONE]") break
                     if (!raw.startsWith("data: ")) continue
                     val data = raw.removePrefix("data: ").trim()
-                    if (data == "[DONE]") break
+                    if (data.isBlank() || data == "[DONE]") continue
                     try {
                         val json = JSONObject(data)
-                        val delta = when (s.selectedProvider) {
-                            "claude" -> json.getJSONArray("delta").optJSONObject(0)?.optString("text", "") ?: ""
-                            else -> json.getJSONArray("choices").getJSONObject(0)
-                                .getJSONObject("delta").optString("content", "")
-                        }
-                        if (delta.isNotEmpty()) {
-                            sb.append(delta)
-                            val current = sb.toString()
-                            // update message in-place
+                        val chunk = extractChunk(provider, json)
+                        if (chunk.isNotEmpty()) {
+                            sb.append(chunk)
+                            val cur = sb.toString()
                             _uiState.update { st ->
                                 st.copy(conversations = st.conversations.map { conv ->
-                                    if (conv.id == convId) conv.copy(
-                                        messages = conv.messages.map { m ->
-                                            if (m.id == botMsgId) m.copy(content = current) else m
-                                        }
-                                    ) else conv
+                                    if (conv.id != convId) conv
+                                    else conv.copy(messages = conv.messages.map { m ->
+                                        if (m.id == botMsgId) m.copy(content = cur) else m
+                                    })
                                 })
                             }
                         }
-                    } catch (_: Exception) {}
+                    } catch (_: Exception) { /* skip malformed chunks */ }
                 }
 
-                // If stopped by user and empty, remove placeholder
                 if (sb.isEmpty()) {
-                    updateConversation(convId) { c -> c.copy(messages = c.messages.filter { it.id != botMsgId }) }
+                    editConv(convId) { c -> c.copy(messages = c.messages.filter { it.id != botMsgId }) }
+                    addBot(convId, "I received an empty response. Please try again.")
                 }
 
             } catch (e: Exception) {
-                if (e.message?.contains("cancel", ignoreCase = true) == true ||
-                    e.message?.contains("closed", ignoreCase = true) == true) {
-                    // user pressed stop — append note only if partial content exists
-                    val partial = _uiState.value.activeConversation?.messages?.find { it.id == botMsgId }?.content ?: ""
-                    if (partial.isNotEmpty()) {
-                        updateConversation(convId) { c -> c.copy(
-                            messages = c.messages.map { m ->
-                                if (m.id == botMsgId) m.copy(content = "$partial\n\n*Generation stopped.*") else m
-                            }
-                        )}
+                val isCancelled = e.message?.contains("cancel", true) == true ||
+                    e.message?.contains("closed", true) == true ||
+                    e.message?.contains("Socket", true) == true
+                val partial = _uiState.value.activeConversation?.messages?.find { it.id == botMsgId }?.content ?: ""
+                if (isCancelled) {
+                    if (partial.isEmpty()) {
+                        editConv(convId) { c -> c.copy(messages = c.messages.filter { it.id != botMsgId }) }
                     } else {
-                        updateConversation(convId) { c -> c.copy(messages = c.messages.filter { it.id != botMsgId }) }
+                        editConv(convId) { c -> c.copy(messages = c.messages.map { m ->
+                            if (m.id == botMsgId) m.copy(content = "$partial\n\n*[Stopped]*") else m
+                        })}
                     }
                 } else {
-                    val errText = "Sorry, I couldn't get a response: ${e.message}"
-                    updateConversation(convId) { c -> c.copy(
-                        messages = c.messages.map { m ->
-                            if (m.id == botMsgId) m.copy(content = errText) else m
-                        }
-                    )}
-                    _uiState.update { it.copy(errorMessage = e.message) }
+                    val msg = "❌ Error: ${e.message ?: "Unknown error"}"
+                    editConv(convId) { c -> c.copy(messages = c.messages.map { m ->
+                        if (m.id == botMsgId) m.copy(content = msg) else m
+                    })}
                 }
             } finally {
                 _uiState.update { it.copy(isLoading = false) }
@@ -272,113 +263,127 @@ class AiChatViewModel @Inject constructor(
         }
     }
 
-    /** Returns Triple(url, bodyJson, extraHeaders) */
+    /** Extract text chunk from SSE JSON based on provider format */
+    private fun extractChunk(provider: String, json: JSONObject): String {
+        return when (provider) {
+            "gemini" -> {
+                // Gemini: candidates[0].content.parts[0].text
+                json.optJSONArray("candidates")
+                    ?.optJSONObject(0)
+                    ?.optJSONObject("content")
+                    ?.optJSONArray("parts")
+                    ?.optJSONObject(0)
+                    ?.optString("text", "") ?: ""
+            }
+            "claude" -> {
+                // Claude: delta.type == "text_delta", delta.text
+                val delta = json.optJSONObject("delta")
+                if (delta?.optString("type") == "text_delta") delta.optString("text", "") else ""
+            }
+            else -> {
+                // OpenAI / OpenRouter: choices[0].delta.content
+                json.optJSONArray("choices")
+                    ?.optJSONObject(0)
+                    ?.optJSONObject("delta")
+                    ?.optString("content", "") ?: ""
+            }
+        }
+    }
+
     private fun buildRequest(
-        s: AiChatUiState,
+        provider: String,
+        key: String,
         history: List<Map<String, String>>,
     ): Triple<String, String, Map<String, String>> {
-        val systemPrompt = "You are a friendly and encouraging Study Buddy AI for Indian Class 11 & 12 students. " +
-            "Your name is Study Buddy and you were created by Student Corner. " +
-            "Help with Physics, Chemistry, Mathematics, Biology, Computer Science. " +
-            "Focus on NEET, JEE and MHT-CET exam preparation. Format your responses in Markdown."
+        val system = "You are Study Buddy, a helpful and encouraging AI study assistant created by Student Corner. " +
+            "You help Indian Class 11 & 12 students with Physics, Chemistry, Mathematics, Biology, History, and Computer Science. " +
+            "Focus on NEET, JEE, and MHT-CET exam preparation. " +
+            "Format responses clearly using Markdown (bold for key terms, bullet points for lists). " +
+            "Keep answers concise and student-friendly."
 
-        return when (s.selectedProvider) {
+        return when (provider) {
             "gemini" -> {
-                val contents = buildGeminiContents(history)
-                val body = JSONObject().apply {
-                    put("system_instruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemPrompt))))
-                    put("contents", contents)
-                }.toString()
-                val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=${s.geminiKey}"
-                Triple(url, body, mapOf("Content-Type" to "application/json"))
-            }
-            "openai" -> {
-                val msgs = buildOpenAiMessages(systemPrompt, history)
-                val body = JSONObject().apply {
-                    put("model", "gpt-4o-mini")
-                    put("messages", msgs)
-                    put("stream", true)
-                }.toString()
+                val contents = JSONArray()
+                history.forEach { m ->
+                    contents.put(JSONObject()
+                        .put("role", if (m["role"] == "user") "user" else "model")
+                        .put("parts", JSONArray().put(JSONObject().put("text", m["content"]))))
+                }
+                val body = JSONObject()
+                    .put("system_instruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", system))))
+                    .put("contents", contents)
+                    .put("generationConfig", JSONObject().put("temperature", 0.7))
+                    .toString()
                 Triple(
-                    "https://api.openai.com/v1/chat/completions",
+                    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=$key",
                     body,
-                    mapOf("Authorization" to "Bearer ${s.openAiKey}"),
+                    emptyMap()
                 )
             }
             "claude" -> {
-                val msgs = buildOpenAiMessages(systemPrompt, history)
-                val body = JSONObject().apply {
-                    put("model", "claude-sonnet-4-6")
-                    put("max_tokens", 2048)
-                    put("system", systemPrompt)
-                    put("messages", msgs)
-                    put("stream", true)
-                }.toString()
+                val msgs = JSONArray()
+                history.forEach { m -> msgs.put(JSONObject().put("role", m["role"]).put("content", m["content"])) }
+                val body = JSONObject()
+                    .put("model", "claude-sonnet-4-6")
+                    .put("max_tokens", 2048)
+                    .put("system", system)
+                    .put("messages", msgs)
+                    .put("stream", true)
+                    .toString()
                 Triple(
                     "https://api.anthropic.com/v1/messages",
                     body,
-                    mapOf(
-                        "x-api-key" to s.claudeKey,
-                        "anthropic-version" to "2023-06-01",
-                    ),
+                    mapOf("x-api-key" to key, "anthropic-version" to "2023-06-01"),
                 )
             }
-            else -> { // openrouter (default, uses free z-ai model same as your website)
-                val msgs = buildOpenAiMessages(systemPrompt, history)
-                val body = JSONObject().apply {
-                    put("model", "z-ai/glm-4.5-air:free")
-                    put("messages", msgs)
-                    put("stream", true)
-                }.toString()
+            "openai" -> {
+                val msgs = buildOpenAiMsgs(system, history)
+                val body = JSONObject()
+                    .put("model", "gpt-4o-mini")
+                    .put("messages", msgs)
+                    .put("stream", true)
+                    .toString()
+                Triple("https://api.openai.com/v1/chat/completions", body, mapOf("Authorization" to "Bearer $key"))
+            }
+            else -> { // openrouter
+                val msgs = buildOpenAiMsgs(system, history)
+                val body = JSONObject()
+                    .put("model", "z-ai/glm-4.5-air:free")
+                    .put("messages", msgs)
+                    .put("stream", true)
+                    .toString()
                 Triple(
                     "https://openrouter.ai/api/v1/chat/completions",
                     body,
-                    mapOf("Authorization" to "Bearer ${s.openRouterKey}"),
+                    if (key.isNotBlank()) mapOf("Authorization" to "Bearer $key") else emptyMap()
                 )
             }
         }
     }
 
-    private fun buildOpenAiMessages(system: String, history: List<Map<String, String>>): JSONArray {
+    private fun buildOpenAiMsgs(system: String, history: List<Map<String, String>>): JSONArray {
         val arr = JSONArray()
         arr.put(JSONObject().put("role", "system").put("content", system))
         history.forEach { m -> arr.put(JSONObject().put("role", m["role"]).put("content", m["content"])) }
         return arr
     }
 
-    private fun buildGeminiContents(history: List<Map<String, String>>): JSONArray {
-        val arr = JSONArray()
-        history.forEach { m ->
-            val role = if (m["role"] == "user") "user" else "model"
-            arr.put(JSONObject()
-                .put("role", role)
-                .put("parts", JSONArray().put(JSONObject().put("text", m["content"]))))
-        }
-        return arr
+    private fun providerLabel(p: String) = when(p) {
+        "gemini" -> "Gemini"; "openai" -> "OpenAI"; "claude" -> "Claude"
+        else -> "OpenRouter"
     }
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private fun matchCommand(input: String): String? = chatCommands.firstOrNull { cmd ->
         val text    = if (cmd.caseSensitive) input else input.lowercase()
         val trigger = if (cmd.caseSensitive) cmd.trigger else cmd.trigger.lowercase()
-        when (cmd.type) {
-            "exact"    -> text == trigger
-            "contains" -> text.contains(trigger)
-            else -> false
-        }
+        when (cmd.type) { "exact" -> text == trigger; "contains" -> text.contains(trigger); else -> false }
     }?.response
 
-    private fun addBotMessage(convId: String, content: String) {
-        val msg = ChatMessage(UUID.randomUUID().toString(), MessageRole.MODEL, content)
-        updateConversation(convId) { it.copy(messages = it.messages + msg) }
+    private fun addBot(convId: String, content: String) {
+        editConv(convId) { it.copy(messages = it.messages + ChatMessage(UUID.randomUUID().toString(), MessageRole.MODEL, content)) }
     }
-
-    private fun updateConversation(id: String, transform: (Conversation) -> Conversation) {
-        _uiState.update { s ->
-            s.copy(conversations = s.conversations.map { if (it.id == id) transform(it) else it })
-        }
+    private fun editConv(id: String, transform: (Conversation) -> Conversation) {
+        _uiState.update { s -> s.copy(conversations = s.conversations.map { if (it.id == id) transform(it) else it }) }
     }
-
     fun clearError() = _uiState.update { it.copy(errorMessage = null) }
 }

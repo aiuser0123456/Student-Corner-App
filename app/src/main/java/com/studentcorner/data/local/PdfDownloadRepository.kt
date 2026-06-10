@@ -17,33 +17,32 @@ class PdfDownloadRepository @Inject constructor(
     private val dao: DownloadedPdfDao,
     private val okHttpClient: OkHttpClient,
 ) {
-    /** Private directory – cannot be accessed by file managers or other apps */
     private val pdfDir: File
         get() = File(context.filesDir, "pdfs").also { it.mkdirs() }
 
     val allDownloads: Flow<List<DownloadedPdfEntity>> = dao.getAllFlow()
 
-    suspend fun isDownloaded(resourceId: String): Boolean =
-        dao.getById(resourceId) != null
+    suspend fun isDownloaded(resourceId: String): Boolean = dao.getById(resourceId) != null
 
-    /** Download PDF from [url] and store it privately. Returns the local File. */
+    /** Stream PDF bytes directly from URL into private storage — URL never leaves the app */
     suspend fun downloadPdf(
         resourceId: String,
         title: String,
         subject: String,
         url: String,
         onProgress: (Int) -> Unit = {},
-    ): Result<File> = withContext(Dispatchers.IO) {
+    ): kotlin.Result<File> = withContext(Dispatchers.IO) {
         try {
             val dest = File(pdfDir, "$resourceId.pdf")
-            val req = Request.Builder().url(url).build()
+            val req = Request.Builder()
+                .url(url)
+                .addHeader("User-Agent", "StudentCorner-Android/1.0")
+                .build()
             val resp = okHttpClient.newCall(req).execute()
-            if (!resp.isSuccessful) return@withContext Result.failure(Exception("HTTP ${resp.code}"))
-
-            val body = resp.body ?: return@withContext Result.failure(Exception("Empty body"))
+            if (!resp.isSuccessful) return@withContext kotlin.Result.failure(Exception("HTTP ${resp.code}"))
+            val body = resp.body ?: return@withContext kotlin.Result.failure(Exception("Empty response body"))
             val total = body.contentLength()
             var downloaded = 0L
-
             dest.outputStream().use { out ->
                 body.byteStream().use { inp ->
                     val buf = ByteArray(8192)
@@ -55,19 +54,16 @@ class PdfDownloadRepository @Inject constructor(
                     }
                 }
             }
-
-            dao.insert(
-                DownloadedPdfEntity(
-                    resourceId = resourceId,
-                    title = title,
-                    subject = subject,
-                    filePath = dest.absolutePath,
-                    fileSizeBytes = dest.length(),
-                )
-            )
-            Result.success(dest)
+            dao.insert(DownloadedPdfEntity(
+                resourceId    = resourceId,
+                title         = title,
+                subject       = subject,
+                filePath      = dest.absolutePath,
+                fileSizeBytes = dest.length(),
+            ))
+            kotlin.Result.success(dest)
         } catch (e: Exception) {
-            Result.failure(e)
+            kotlin.Result.failure(e)
         }
     }
 

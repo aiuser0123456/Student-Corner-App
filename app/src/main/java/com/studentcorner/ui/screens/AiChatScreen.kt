@@ -1,10 +1,12 @@
 package com.studentcorner.ui.screens
 
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -15,6 +17,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -29,54 +32,46 @@ fun AiChatScreen(
     viewModel: AiChatViewModel,
     onBack: () -> Unit,
 ) {
-    val state by viewModel.uiState.collectAsState()
-    val conv = state.activeConversation
-    var inputText by remember { mutableStateOf("") }
+    val state    by viewModel.uiState.collectAsState()
+    val conv      = state.activeConversation
+    var input    by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
+    val scope     = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
-    var showHistory by remember { mutableStateOf(false) }
-    var showApiSettings by remember { mutableStateOf(false) }
-    var showRenameDialog by remember { mutableStateOf<String?>(null) } // convId to rename
-    var renameText by remember { mutableStateOf("") }
-    var showClearDialog by remember { mutableStateOf(false) }
-    val snackbarHost = remember { SnackbarHostState() }
+    val snackbar  = remember { SnackbarHostState() }
 
-    // Auto-scroll to bottom on new message
+    var showHistory     by remember { mutableStateOf(false) }
+    var showApiSettings by remember { mutableStateOf(false) }
+    var showClearDialog by remember { mutableStateOf(false) }
+    var renameDialog    by remember { mutableStateOf<String?>(null) }
+    var renameText      by remember { mutableStateOf("") }
+
     LaunchedEffect(conv?.messages?.size) {
         val n = conv?.messages?.size ?: 0
         if (n > 0) listState.animateScrollToItem(n - 1)
     }
 
-    // ── Rename dialog ─────────────────────────────────────────────────────────
-    if (showRenameDialog != null) {
+    // Dialogs
+    if (renameDialog != null) {
         AlertDialog(
-            onDismissRequest = { showRenameDialog = null },
+            onDismissRequest = { renameDialog = null },
             title = { Text("Rename Chat") },
-            text = {
-                OutlinedTextField(
-                    value = renameText,
-                    onValueChange = { renameText = it },
-                    label = { Text("Chat name") },
-                    singleLine = true,
-                )
-            },
+            text = { OutlinedTextField(value = renameText, onValueChange = { renameText = it },
+                label = { Text("Chat name") }, singleLine = true) },
             confirmButton = {
                 TextButton(onClick = {
-                    if (renameText.isNotBlank()) viewModel.renameConversation(showRenameDialog!!, renameText)
-                    showRenameDialog = null
+                    if (renameText.isNotBlank()) viewModel.renameConversation(renameDialog!!, renameText)
+                    renameDialog = null
                 }) { Text("Save") }
             },
-            dismissButton = { TextButton(onClick = { showRenameDialog = null }) { Text("Cancel") } }
+            dismissButton = { TextButton(onClick = { renameDialog = null }) { Text("Cancel") } }
         )
     }
-
-    // ── Clear dialog ──────────────────────────────────────────────────────────
     if (showClearDialog) {
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
-            title = { Text("Clear Conversation?") },
-            text = { Text("All messages in this chat will be deleted.") },
+            title = { Text("Clear Chat?") },
+            text = { Text("All messages will be permanently deleted.") },
             confirmButton = {
                 TextButton(onClick = { viewModel.clearCurrentChat(); showClearDialog = false }) {
                     Text("Clear", color = MaterialTheme.colorScheme.error)
@@ -85,8 +80,50 @@ fun AiChatScreen(
             dismissButton = { TextButton(onClick = { showClearDialog = false }) { Text("Cancel") } }
         )
     }
-
-    // ── API Settings sheet ────────────────────────────────────────────────────
+    if (showHistory) {
+        ModalBottomSheet(onDismissRequest = { showHistory = false }) {
+            Column(modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 40.dp)) {
+                Text("Conversations", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
+                Spacer(Modifier.height(4.dp))
+                Text("${state.conversations.size} chat${if (state.conversations.size != 1) "s" else ""}",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(16.dp))
+                state.conversations.forEach { c ->
+                    val isActive = c.id == state.activeConversationId
+                    Surface(
+                        onClick = { viewModel.selectConversation(c.id); showHistory = false },
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (isActive) MaterialTheme.colorScheme.primaryContainer
+                        else MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                    ) {
+                        Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Chat, null,
+                                tint = if (isActive) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Text(c.title.ifBlank { "New Chat" },
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal))
+                            IconButton(onClick = {
+                                renameText = c.title; renameDialog = c.id; showHistory = false
+                            }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Edit, null, modifier = Modifier.size(16.dp))
+                            }
+                            IconButton(onClick = { viewModel.deleteConversation(c.id) },
+                                modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Delete, null,
+                                    tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     if (showApiSettings) {
         AiSettingsSheet(
             state = state,
@@ -98,63 +135,16 @@ fun AiChatScreen(
         )
     }
 
-    // ── History drawer (ModalDrawer) ──────────────────────────────────────────
-    if (showHistory) {
-        ModalBottomSheet(onDismissRequest = { showHistory = false }) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("Chat History", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
-                Spacer(Modifier.height(12.dp))
-                if (state.conversations.isEmpty()) {
-                    Text("No conversations yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                state.conversations.forEach { c ->
-                    val isActive = c.id == state.activeConversationId
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        TextButton(
-                            onClick = { viewModel.selectConversation(c.id); showHistory = false },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text(
-                                c.title.ifBlank { "New Chat" },
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
-                                ),
-                                color = if (isActive) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurface,
-                            )
-                        }
-                        // Rename
-                        IconButton(onClick = {
-                            renameText = c.title
-                            showRenameDialog = c.id
-                            showHistory = false
-                        }) { Icon(Icons.Default.Edit, "Rename", modifier = Modifier.size(18.dp)) }
-                        // Delete
-                        IconButton(onClick = { viewModel.deleteConversation(c.id) }) {
-                            Icon(Icons.Default.Delete, "Delete",
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(18.dp))
-                        }
-                    }
-                    HorizontalDivider()
-                }
-                Spacer(Modifier.height(32.dp))
-            }
-        }
-    }
-
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHost) },
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = {
                     Column {
-                        Text("AI Study Assistant")
+                        Text("AI Study Assistant", fontWeight = FontWeight.Bold)
                         conv?.title?.let {
-                            Text(it, style = MaterialTheme.typography.labelSmall,
+                            Text(it.ifBlank { "New Chat" },
+                                style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
@@ -163,72 +153,54 @@ fun AiChatScreen(
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
                 },
                 actions = {
-                    // New chat
-                    IconButton(onClick = { viewModel.newConversation() }) {
-                        Icon(Icons.Default.Add, "New chat")
+                    IconButton(onClick = { viewModel.newConversation() }) { Icon(Icons.Default.Add, "New") }
+                    IconButton(onClick = { showHistory = true }) { Icon(Icons.Default.History, "History") }
+                    IconButton(onClick = { showClearDialog = true },
+                        enabled = conv?.messages?.isNotEmpty() == true) {
+                        Icon(Icons.Default.DeleteSweep, "Clear")
                     }
-                    // History
-                    IconButton(onClick = { showHistory = true }) {
-                        Icon(Icons.Default.History, "History")
-                    }
-                    // Clear
-                    IconButton(
-                        onClick = { showClearDialog = true },
-                        enabled = conv?.messages?.isNotEmpty() == true,
-                    ) {
-                        Icon(Icons.Default.DeleteSweep, "Clear chat")
-                    }
-                    // API settings
-                    IconButton(onClick = { showApiSettings = true }) {
-                        Icon(Icons.Default.Settings, "API Settings")
-                    }
-                }
+                    IconButton(onClick = { showApiSettings = true }) { Icon(Icons.Default.Settings, "API Settings") }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
             )
         },
         bottomBar = {
-            Column(
-                modifier = Modifier
-                    .navigationBarsPadding()
-                    .imePadding()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            Surface(
+                shadowElevation = 8.dp,
+                color = MaterialTheme.colorScheme.surface,
             ) {
-                state.errorMessage?.let { err ->
-                    Text(err, color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(bottom = 4.dp))
-                }
-                Row(verticalAlignment = Alignment.Bottom) {
-                    OutlinedTextField(
-                        value = inputText,
-                        onValueChange = { inputText = it },
-                        placeholder = { Text("Ask a study question… (Enter to send)") },
-                        modifier = Modifier.weight(1f),
-                        minLines = 1,
-                        maxLines = 5,
-                        shape = RoundedCornerShape(24.dp),
-                        enabled = !state.isLoading,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    if (state.isLoading) {
-                        FilledIconButton(
-                            onClick = { viewModel.stopGenerating() },
-                            colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = MaterialTheme.colorScheme.error,
-                            ),
-                        ) {
-                            Icon(Icons.Default.Stop, "Stop generating")
-                        }
-                    } else {
-                        FilledIconButton(
-                            onClick = {
-                                if (inputText.isNotBlank()) {
-                                    viewModel.sendMessage(inputText)
-                                    inputText = ""
-                                }
-                            },
-                            enabled = inputText.isNotBlank(),
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.Send, "Send")
+                Column(modifier = Modifier.navigationBarsPadding().imePadding().padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    state.errorMessage?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(bottom = 4.dp))
+                    }
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        OutlinedTextField(
+                            value = input,
+                            onValueChange = { input = it },
+                            placeholder = { Text("Ask anything…") },
+                            modifier = Modifier.weight(1f),
+                            minLines = 1, maxLines = 5,
+                            shape = RoundedCornerShape(22.dp),
+                            enabled = !state.isLoading,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        AnimatedContent(targetState = state.isLoading, label = "send_stop") { loading ->
+                            if (loading) {
+                                FilledIconButton(
+                                    onClick = { viewModel.stopGenerating() },
+                                    colors = IconButtonDefaults.filledIconButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.error),
+                                ) { Icon(Icons.Default.Stop, "Stop") }
+                            } else {
+                                FilledIconButton(
+                                    onClick = {
+                                        if (input.isNotBlank()) { viewModel.sendMessage(input); input = "" }
+                                    },
+                                    enabled = input.isNotBlank(),
+                                ) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
+                            }
                         }
                     }
                 }
@@ -238,24 +210,29 @@ fun AiChatScreen(
         val messages = conv?.messages ?: emptyList()
 
         if (messages.isEmpty() && !state.isLoading) {
-            // Empty state with example prompts
+            // Empty state
             Column(
                 modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                Icon(Icons.Default.AutoAwesome, null,
-                    modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary)
+                Box(
+                    modifier = Modifier.size(72.dp).clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Default.AutoAwesome, null,
+                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(36.dp))
+                }
                 Spacer(Modifier.height(16.dp))
-                Text("Study Buddy AI", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold))
-                Text("Your personal AI study assistant", style = MaterialTheme.typography.bodyMedium,
+                Text("Study Buddy AI",
+                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold))
+                Text("Your personal AI study assistant",
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(8.dp))
-                // Show current provider
                 val providerLabel = when (state.selectedProvider) {
-                    "gemini" -> "Gemini"
-                    "openai" -> "OpenAI"
-                    "claude" -> "Claude"
+                    "gemini" -> "Gemini"; "openai" -> "OpenAI"; "claude" -> "Claude"
                     else -> "OpenRouter (Free)"
                 }
                 AssistChip(
@@ -264,18 +241,20 @@ fun AiChatScreen(
                     leadingIcon = { Icon(Icons.Default.SmartToy, null, modifier = Modifier.size(16.dp)) },
                 )
                 Spacer(Modifier.height(24.dp))
+                Text("Try asking:", style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(8.dp))
                 listOf(
                     "What is Beats frequency?",
-                    "Explain electrochemistry",
-                    "What is CPU?",
                     "Explain Newton's laws of motion",
+                    "What is electrochemistry?",
+                    "Explain the CPU architecture",
                 ).forEach { prompt ->
                     OutlinedButton(
-                        onClick = { viewModel.sendMessage(prompt); inputText = "" },
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    ) {
-                        Text(prompt, style = MaterialTheme.typography.bodySmall)
-                    }
+                        onClick = { viewModel.sendMessage(prompt) },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                        shape = RoundedCornerShape(10.dp),
+                    ) { Text(prompt, style = MaterialTheme.typography.bodySmall) }
                 }
             }
         } else {
@@ -286,28 +265,19 @@ fun AiChatScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    items(messages, key = { it.id }) { message ->
-                        val isUser = message.role == MessageRole.USER
-
-                        // Thinking indicator
-                        if (message.content.isEmpty() && !isUser) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(Icons.Default.SmartToy, null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(28.dp))
+                    items(messages, key = { it.id }) { msg ->
+                        val isUser = msg.role == MessageRole.USER
+                        if (msg.content.isEmpty() && !isUser) {
+                            // Typing indicator
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                BotAvatar()
                                 Spacer(Modifier.width(8.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                                        .padding(12.dp),
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                Surface(shape = RoundedCornerShape(16.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant) {
+                                    Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically) {
+                                        CircularProgressIndicator(modifier = Modifier.size(14.dp),
+                                            strokeWidth = 2.dp)
                                         Spacer(Modifier.width(8.dp))
                                         Text("Thinking…", style = MaterialTheme.typography.bodySmall)
                                     }
@@ -315,23 +285,19 @@ fun AiChatScreen(
                             }
                             return@items
                         }
-
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
                         ) {
-                            if (!isUser) {
-                                Icon(Icons.Default.SmartToy, null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(28.dp).padding(end = 4.dp))
-                            }
-                            Column(modifier = Modifier.widthIn(max = 290.dp)) {
+                            if (!isUser) { BotAvatar(); Spacer(Modifier.width(8.dp)) }
+                            Column(modifier = Modifier.widthIn(max = 280.dp),
+                                horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(
-                                            topStart = 16.dp, topEnd = 16.dp,
-                                            bottomStart = if (isUser) 16.dp else 4.dp,
-                                            bottomEnd = if (isUser) 4.dp else 16.dp,
+                                            topStart = 18.dp, topEnd = 18.dp,
+                                            bottomStart = if (isUser) 18.dp else 4.dp,
+                                            bottomEnd   = if (isUser) 4.dp else 18.dp,
                                         ))
                                         .background(
                                             if (isUser) MaterialTheme.colorScheme.primary
@@ -339,58 +305,63 @@ fun AiChatScreen(
                                         )
                                         .padding(12.dp),
                                 ) {
-                                    Text(
-                                        message.content,
+                                    Text(msg.content,
                                         style = MaterialTheme.typography.bodyMedium,
-                                        color = if (isUser) MaterialTheme.colorScheme.onPrimary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
+                                        color = if (isUser) Color.White
+                                        else MaterialTheme.colorScheme.onSurface)
                                 }
-                                // Copy button for AI messages
-                                if (!isUser && message.content.isNotEmpty()) {
+                                if (!isUser && msg.content.isNotEmpty()) {
                                     TextButton(
                                         onClick = {
-                                            clipboard.setText(AnnotatedString(message.content))
-                                            scope.launch { snackbarHost.showSnackbar("Copied!") }
+                                            clipboard.setText(AnnotatedString(msg.content))
+                                            scope.launch { snackbar.showSnackbar("Copied!") }
                                         },
-                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
                                     ) {
-                                        Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(14.dp))
-                                        Spacer(Modifier.width(4.dp))
+                                        Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(13.dp))
+                                        Spacer(Modifier.width(3.dp))
                                         Text("Copy", style = MaterialTheme.typography.labelSmall)
                                     }
                                 }
                             }
                             if (isUser) {
-                                Spacer(Modifier.width(4.dp))
-                                Icon(Icons.Default.AccountCircle, null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(28.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Box(modifier = Modifier.size(30.dp).clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primaryContainer),
+                                    contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Person, null,
+                                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                                }
                             }
                         }
                     }
                 }
-
                 // Scroll to bottom FAB
-                val showScrollBtn by remember {
-                    derivedStateOf { listState.canScrollForward }
-                }
-                if (showScrollBtn) {
-                    FloatingActionButton(
+                val showDown by remember { derivedStateOf { listState.canScrollForward } }
+                AnimatedVisibility(visible = showDown,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                    enter = fadeIn() + scaleIn(), exit = fadeOut() + scaleOut()) {
+                    SmallFloatingActionButton(
                         onClick = { scope.launch { listState.animateScrollToItem(messages.size - 1) } },
-                        modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp).size(40.dp),
                         containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    ) {
-                        Icon(Icons.Default.KeyboardArrowDown, "Scroll to bottom",
-                            modifier = Modifier.size(20.dp))
-                    }
+                    ) { Icon(Icons.Default.KeyboardArrowDown, null, modifier = Modifier.size(20.dp)) }
                 }
             }
         }
     }
 }
 
-// ── API Settings bottom sheet ──────────────────────────────────────────────────
+@Composable
+private fun BotAvatar() {
+    Box(modifier = Modifier.size(30.dp).clip(CircleShape)
+        .background(MaterialTheme.colorScheme.primaryContainer),
+        contentAlignment = Alignment.Center) {
+        Icon(Icons.Default.SmartToy, null,
+            tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+    }
+}
+
+// ── AI Settings Sheet ──────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -399,89 +370,116 @@ fun AiSettingsSheet(
     onSave: (String, String, String, String, String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var provider    by remember { mutableStateOf(state.selectedProvider) }
-    var geminiKey   by remember { mutableStateOf(state.geminiKey) }
-    var openAiKey   by remember { mutableStateOf(state.openAiKey) }
-    var claudeKey   by remember { mutableStateOf(state.claudeKey) }
+    var provider      by remember { mutableStateOf(state.selectedProvider) }
+    var geminiKey     by remember { mutableStateOf(state.geminiKey) }
+    var openAiKey     by remember { mutableStateOf(state.openAiKey) }
+    var claudeKey     by remember { mutableStateOf(state.claudeKey) }
     var openRouterKey by remember { mutableStateOf(state.openRouterKey) }
-    var showKeys    by remember { mutableStateOf(false) }
-
-    val providers = listOf(
-        "openrouter" to "OpenRouter (Free – no key needed for free models)",
-        "gemini"     to "Google Gemini",
-        "openai"     to "OpenAI",
-        "claude"     to "Anthropic Claude",
-    )
+    var showKeys      by remember { mutableStateOf(false) }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 32.dp),
-        ) {
-            Text("AI Settings", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
-            Spacer(Modifier.height(16.dp))
+        Column(modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+            .padding(bottom = 40.dp)) {
 
-            Text("Provider", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.height(8.dp))
-            providers.forEach { (key, label) ->
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth(),
+            Text("AI Provider Settings",
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
+            Text("Choose a provider and enter your API key",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(20.dp))
+
+            // Provider cards
+            val providers = listOf(
+                Triple("openrouter", "OpenRouter", "Free models available — no key needed to try!"),
+                Triple("gemini",     "Google Gemini", "aistudio.google.com → Get API Key"),
+                Triple("openai",     "OpenAI",        "platform.openai.com → API keys"),
+                Triple("claude",     "Anthropic Claude", "console.anthropic.com → API Keys"),
+            )
+            providers.forEach { (key, label, hint) ->
+                Surface(
+                    onClick = { provider = key },
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (provider == key) MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                 ) {
-                    RadioButton(selected = provider == key, onClick = { provider = key })
-                    Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 8.dp))
+                    Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = provider == key, onClick = { provider = key })
+                        Spacer(Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(label, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
+                            Text(hint, style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                 }
             }
 
             Spacer(Modifier.height(16.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("API Keys", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = { showKeys = !showKeys }) {
-                    Text(if (showKeys) "Hide" else "Show / Edit")
+            // API Keys section
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Key, null, modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(8.dp))
+                        Text("API Keys", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            modifier = Modifier.weight(1f))
+                        TextButton(onClick = { showKeys = !showKeys },
+                            contentPadding = PaddingValues(horizontal = 8.dp)) {
+                            Text(if (showKeys) "Hide" else "Show / Edit",
+                                style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                    if (showKeys) {
+                        Spacer(Modifier.height(10.dp))
+                        ApiKeyInput("OpenRouter Key", openRouterKey, "sk-or-v1-…") { openRouterKey = it }
+                        Spacer(Modifier.height(8.dp))
+                        ApiKeyInput("Gemini Key", geminiKey, "AIzaSy…") { geminiKey = it }
+                        Spacer(Modifier.height(8.dp))
+                        ApiKeyInput("OpenAI Key", openAiKey, "sk-…") { openAiKey = it }
+                        Spacer(Modifier.height(8.dp))
+                        ApiKeyInput("Claude Key", claudeKey, "sk-ant-…") { claudeKey = it }
+                        Spacer(Modifier.height(8.dp))
+                        Surface(shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer) {
+                            Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.Top) {
+                                Icon(Icons.Default.Lock, null, modifier = Modifier.size(14.dp).padding(top = 2.dp),
+                                    tint = MaterialTheme.colorScheme.secondary)
+                                Spacer(Modifier.width(6.dp))
+                                Text("Keys are stored locally on your device and never sent anywhere except the AI provider you select.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer)
+                            }
+                        }
+                    }
                 }
-            }
-
-            if (showKeys) {
-                Spacer(Modifier.height(8.dp))
-                ApiKeyField("OpenRouter Key", openRouterKey, "sk-or-…") { openRouterKey = it }
-                Spacer(Modifier.height(8.dp))
-                ApiKeyField("Gemini API Key", geminiKey, "AIza…") { geminiKey = it }
-                Spacer(Modifier.height(8.dp))
-                ApiKeyField("OpenAI API Key", openAiKey, "sk-…") { openAiKey = it }
-                Spacer(Modifier.height(8.dp))
-                ApiKeyField("Anthropic (Claude) Key", claudeKey, "sk-ant-…") { claudeKey = it }
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Keys are stored locally on your device only.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
 
             Spacer(Modifier.height(20.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel") }
-                Button(
-                    onClick = { onSave(provider, geminiKey, openAiKey, claudeKey, openRouterKey) },
-                    modifier = Modifier.weight(1f),
-                ) { Text("Save") }
+                Button(onClick = { onSave(provider, geminiKey, openAiKey, claudeKey, openRouterKey) },
+                    modifier = Modifier.weight(1f)) { Text("Save") }
             }
         }
     }
 }
 
 @Composable
-private fun ApiKeyField(label: String, value: String, placeholder: String, onChange: (String) -> Unit) {
+private fun ApiKeyInput(label: String, value: String, placeholder: String, onChange: (String) -> Unit) {
     OutlinedTextField(
-        value = value,
-        onValueChange = onChange,
-        label = { Text(label) },
+        value = value, onValueChange = onChange,
+        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
         placeholder = { Text(placeholder, style = MaterialTheme.typography.bodySmall) },
         singleLine = true,
+        shape = RoundedCornerShape(10.dp),
         modifier = Modifier.fillMaxWidth(),
-        leadingIcon = { Icon(Icons.Default.Key, null, modifier = Modifier.size(18.dp)) },
     )
 }
