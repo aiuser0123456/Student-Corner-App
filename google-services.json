@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "459285930745",
+    "project_id": "educlone-itwa4",
+    "storage_bucket": "educlone-itwa4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:459285930745:android:c5a2a9443c1b90cbf47828",
+        "android_client_info": {
+          "package_name": "com.studentcorner"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "459285930745-ujcifrioqilp7bibmmb3dnlf4fnk8bg8.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCnVtIpYlgFlARYR-W7eBOvdRoBoPnWiHc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "459285930745-946t0gnev5mu6smu32ef1sj8c7l5n2r6.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
